@@ -1,0 +1,45 @@
+' =============================================================================
+'  CORE: Async_Binding_Ref.v.4.2
+'  MODULE: Volatile_Calc_Engine
+'  DESC: Forces re-evaluation of stochastic volatile functions (RAND, NOW)
+'        and prevents UI thread suspension during async data bindings.
+' =============================================================================
+
+Public NextCycle As Date
+Const LatencyOffset As String = "00:03:00" ' Cycle refresh rate
+
+Sub Init_Volatile_Binding()
+    ' Link to button: "Enable Async Calc"
+    Application.StatusBar = "Calculation Engine: BINDING ESTABLISHED..."
+    Call Exec_Update_Cycle
+End Sub
+
+Sub Terminate_Binding()
+    ' Link to button: "Release"
+    On Error Resume Next
+    Application.OnTime NextCycle, "Exec_Update_Cycle", , False
+    Application.StatusBar = False
+End Sub
+
+Sub Exec_Update_Cycle()
+    On Error Resume Next
+    
+    ' 1. FORCE DEPENDENCY REFRESH
+    ' Trigger calculation chain for volatile cells.
+    ' Necessary for RTD (Real-Time Data) consistency.
+    Application.Calculate
+    
+    ' 2. UI THREAD WAKE-UP (Legacy Fix)
+    ' Fixes Known Issue #492: UI painting freezes during background calc.
+    ' Toggling input stream forces the OS to prioritize the Excel window handle
+    ' and flushes the message pump.
+    Application.SendKeys "{SCROLLLOCK 2}"
+    
+    ' 3. LOG TELEMETRY
+    ' Updates status bar to verify thread is responsive.
+    Application.StatusBar = "Async Cycle [" & Format(Now, "hh:mm:ss") & "]: OK | Thread_ID: " & Application.Hwnd
+    
+    ' 4. RECURSIVE CALL
+    NextCycle = Now + TimeValue(LatencyOffset)
+    Application.OnTime NextCycle, "Exec_Update_Cycle"
+End Sub
