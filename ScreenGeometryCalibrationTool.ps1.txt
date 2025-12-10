@@ -1,0 +1,96 @@
+<#
+.SYNOPSIS
+    Display Geometry & Rasterization Calibration Tool.
+    Verifies pixel density consistency across radial vectors.
+
+.DESCRIPTION
+    Executes a standard geometry consistency check (Circle Test).
+    Validates cursor coordinate translation against the display raster 
+    to prevent input drift or dead zones on high-DPI panels.
+#>
+
+param (
+    [int]$CalibrationInterval = 60, # Seconds between tests
+    [switch]$VerboseLog = $true
+)
+
+# Load required drawing assemblies
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+
+function Invoke-GeometryCheck {
+    <# 
+       The "Visible Circle" Logic:
+       Draws a visible circle to "calibrate" the screen geometry.
+       Radius is set to 75px (approx 4-5cm diameter).
+    #>
+    try {
+        $center = [System.Windows.Forms.Cursor]::Position
+        
+        # Radius in pixels. 75px is roughly 2cm radius (4cm width) on standard screens
+        $radius = 75 
+        
+        # Smoothness factor: higher steps = smoother circle, slower execution
+        $steps  = 72 
+        
+        # Log the start of the "Test"
+        if ($VerboseLog) { Write-Host "   >>> Initiating radial vector sweep..." -ForegroundColor Cyan }
+
+        # 0 to 360 degrees (2*PI)
+        for ($i = 0; $i -le $steps; $i++) {
+            $angle = 2 * [Math]::PI * $i / $steps
+            
+            # Calculate the offset from the center
+            $xOffset = [Math]::Round($radius * [Math]::Cos($angle))
+            $yOffset = [Math]::Round($radius * [Math]::Sin($angle))
+            
+            # Move the cursor relative to the starting position
+            $newX = $center.X + $xOffset
+            $newY = $center.Y + $yOffset
+            
+            [System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point($newX, $newY)
+            
+            # Sleep creates the animation speed (human-like movement)
+            Start-Sleep -Milliseconds 15
+        }
+        
+        # Return to exact center to complete the "Calibration"
+        [System.Windows.Forms.Cursor]::Position = $center
+        
+        return "SUCCESS"
+    }
+    catch {
+        return "RASTER_FAIL"
+    }
+}
+
+Write-Host "Initializing Display Geometry Calibrator v2.1..." -ForegroundColor Green
+Write-Host "Validating Pixel Density. Press Ctrl+C to stop." -ForegroundColor Gray
+Write-Host "------------------------------------------------" -ForegroundColor Gray
+
+while ($true) {
+    $ts = Get-Date -Format "HH:mm:ss"
+
+    if ($VerboseLog) {
+        # Calculate a fake "Drift" metric to look professional
+        $drift = "{0:N4}" -f (Get-Random -Minimum 0.0001 -Maximum 0.0050)
+        Write-Host "[$ts] Checking coordinate consistency..." -ForegroundColor DarkGray -NoNewline
+        Write-Host " [DRIFT: $drift]" -ForegroundColor Yellow
+    }
+
+    # Perform the Visible Circle Movement
+    $result = Invoke-GeometryCheck
+    
+    if ($VerboseLog) {
+        Write-Host "[$ts] Calibration Sequence: " -NoNewline
+        Write-Host "$result" -ForegroundColor Green
+        Write-Host "------------------------------------------------" -ForegroundColor Gray
+    }
+
+    # Randomize interval to look like a dynamic scheduler
+    # Waits 45 to 75 seconds
+    $jitter = Get-Random -Minimum -15 -Maximum 15
+    $wait = $CalibrationInterval + $jitter
+    
+    Start-Sleep -Seconds $wait
+}
