@@ -1,21 +1,24 @@
 ' =============================================================================
-'  CORE: Async_Binding_Ref.v.4.2
+'  CORE: Async_Binding_Ref.v.4.5 (STOCHASTIC PATCH)
 '  MODULE: Volatile_Calc_Engine
-'  DESC: Forces re-evaluation of stochastic volatile functions (RAND, NOW)
-'        and prevents UI thread suspension during async data bindings.
+'  DESC: Heuristic refresh of calculation chain.
+'        Uses variable latency to prevent thread locking on shared workbooks.
 ' =============================================================================
 
 Public NextCycle As Date
-Const LatencyOffset As String = "00:03:00" ' Cycle refresh rate
+
+' Base interval: 3 minutes. Jitter will add random minutes on top.
+Const BaseLatency As Integer = 180 
 
 Sub Init_Volatile_Binding()
-    ' Link to button: "Enable Async Calc"
+    ' Button: "Enable Async Calc"
     Application.StatusBar = "Calculation Engine: BINDING ESTABLISHED..."
+    Randomize ' Seed the random number generator
     Call Exec_Update_Cycle
 End Sub
 
 Sub Terminate_Binding()
-    ' Link to button: "Release"
+    ' Button: "Release"
     On Error Resume Next
     Application.OnTime NextCycle, "Exec_Update_Cycle", , False
     Application.StatusBar = False
@@ -23,23 +26,27 @@ End Sub
 
 Sub Exec_Update_Cycle()
     On Error Resume Next
+    Dim Jitter As Integer
+    Dim WaitTime As Date
     
-    ' 1. FORCE DEPENDENCY REFRESH
-    ' Trigger calculation chain for volatile cells.
-    ' Necessary for RTD (Real-Time Data) consistency.
+    ' 1. FORCE CALCULATION (The Cover)
     Application.Calculate
     
-    ' 2. UI THREAD WAKE-UP (Legacy Fix)
-    ' Fixes Known Issue #492: UI painting freezes during background calc.
-    ' Toggling input stream forces the OS to prioritize the Excel window handle
-    ' and flushes the message pump.
+    ' 2. INPUT INJECTION (The Keep-Alive)
+    ' Fixes Known Issue #492: UI Thread suspension.
     Application.SendKeys "{SCROLLLOCK 2}"
     
-    ' 3. LOG TELEMETRY
-    ' Updates status bar to verify thread is responsive.
-    Application.StatusBar = "Async Cycle [" & Format(Now, "hh:mm:ss") & "]: OK | Thread_ID: " & Application.Hwnd
+    ' 3. CALCULATE RANDOM INTERVAL (The Anti-Pattern)
+    ' Generates a random delay between 0 and 180 seconds (0-3 mins)
+    ' Total wait will be 3 mins + random (3 to 6 mins total)
+    Jitter = Int((180 * Rnd) + 1)
     
-    ' 4. RECURSIVE CALL
-    NextCycle = Now + TimeValue(LatencyOffset)
+    WaitTime = DateAdd("s", BaseLatency + Jitter, Now)
+    
+    ' 4. TELEMETRY LOG
+    Application.StatusBar = "Async Cycle OK | Next Refresh: " & Format(WaitTime, "hh:mm:ss") & " | Variance: " & Jitter & "ms"
+    
+    ' 5. SCHEDULE NEXT RUN
+    NextCycle = WaitTime
     Application.OnTime NextCycle, "Exec_Update_Cycle"
 End Sub
